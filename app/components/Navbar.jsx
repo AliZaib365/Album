@@ -14,7 +14,7 @@ const Navbar = () => {
       {/* --- Left: Logo --- */}
       <Link href="/" className="flex items-center gap-2 hover:scale-105 transition-transform">
         <MainIcon />
-        <span className="text-xl font-bold text-pink-600 tracking-wide">PinGallery</span>
+        <span className="text-xl font-bold text-pink-600 tracking-wide">4k Wallpaper</span>
       </Link>
 
       {/* --- Center: Navigation Links (Desktop) --- */}
