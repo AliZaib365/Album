@@ -1,4 +1,3 @@
-// This API route will fetch the file from the remote server and forward it to your client
 export async function GET(request) {
     // Get 'url' from query parameters
     const { searchParams } = new URL(request.url);

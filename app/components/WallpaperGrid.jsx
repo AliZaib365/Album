@@ -179,6 +179,7 @@ const WallpaperGrid = ({ wallpapers = [] }) => {
     <div className="w-full h-[100vh]">
       <AutoSizer>
         {({ height, width }) => {
+          const customwidth=2000;
           const columnCount = Math.floor(width / (CELL_WIDTH + GUTTER_SIZE)) || 1;
           const rowCount = Math.ceil(wallpapers.length / columnCount);
           return (
@@ -188,7 +189,7 @@ const WallpaperGrid = ({ wallpapers = [] }) => {
               height={height}
               rowCount={rowCount}
               rowHeight={CELL_HEIGHT + GUTTER_SIZE}
-              width={width}
+              width={customwidth}
               itemData={{ wallpapers, columnCount }}
             >
               {Cell}
