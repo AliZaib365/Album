@@ -1,18 +1,17 @@
-'use client';
-
-import { useEffect, useRef, useState } from 'react';
+"use client"
+import React, { useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 
-export default function WallpaperDetailPage() {
+function WallpaperDetailPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const videoRef = useRef(null);
   const [wallpaper, setWallpaper] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [isDownloading, setIsDownloading] = useState(false);
+  const [blobVideoUrl, setBlobVideoUrl] = useState('');
 
-  // Fetch wallpaper data from the URL search params.
+  // Fetch wallpaper data from the URL search parameters.
   useEffect(() => {
     const encodedData = searchParams.get('data');
     if (encodedData) {
@@ -27,23 +26,37 @@ export default function WallpaperDetailPage() {
     }
   }, [searchParams, router]);
 
-  // Use the direct media URL from the API as provided.
-  const videoUrl = wallpaper?.media || '';
+  // Once wallpaper is loaded, fetch the media as a blob and create a blob URL for preview.
+  useEffect(() => {
+    let currentBlobUrl = '';
+    const fetchBlob = async () => {
+      if (wallpaper && wallpaper.media) {
+        try {
+          // Use your API route (for example '/api/proxy?url=...') to fetch the file
+          // so that you don't expose the original URL.
+          const proxyUrl = `/api/proxy?url=${encodeURIComponent(wallpaper.media)}`;
+          const response = await fetch(proxyUrl);
+          if (!response.ok) {
+            throw new Error('Failed to fetch media');
+          }
+          const blob = await response.blob();
+          currentBlobUrl = URL.createObjectURL(blob);
+          setBlobVideoUrl(currentBlobUrl);
+        } catch (error) {
+          console.error('Error loading media as blob:', error);
+        }
+      }
+    };
 
-  // Format the wallpaper name for display and as a download file name.
-  const formatName = (name) => {
-    if (!name) return 'Live_Wallpaper';
-    const tags = name.split('#').filter(Boolean);
-    const mainTag = tags.length > 0 ? tags[0] : 'Live_Wallpaper';
-    return mainTag.replace(/[^a-zA-Z0-9\s]/g, ' ').replace(/\s+/g, '_').trim();
-  };
+    fetchBlob();
 
-  const extractTags = (name) => {
-    if (!name) return [];
-    return name.split('#').slice(1).map((tag) =>
-      tag.replace(/[^a-zA-Z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim()
-    );
-  };
+    // Cleanup: revoke the blob URL when the component unmounts or wallpaper changes.
+    return () => {
+      if (currentBlobUrl) {
+        URL.revokeObjectURL(currentBlobUrl);
+      }
+    };
+  }, [wallpaper]);
 
   const togglePlay = () => {
     if (videoRef.current) {
@@ -56,20 +69,34 @@ export default function WallpaperDetailPage() {
     }
   };
 
-  // Use the proxy API route to download the file.
+  // Download handler that creates an anchor element to trigger download from the blob URL.
   const handleDownload = () => {
-    if (!videoUrl) return;
-    setIsDownloading(true);
-    // Encode the video URL and build the proxy URL.
-    const encodedUrl = encodeURIComponent(videoUrl);
-    const proxyUrl = `/api/proxy?url=${encodedUrl}`;
-    // Directing browser to the proxy URL triggers download
-    window.location.href = proxyUrl;
-    // Note: The browser handles the rest.
-    setIsDownloading(false);
+    if (!blobVideoUrl || !wallpaper) return;
+    const link = document.createElement('a');
+    link.href = blobVideoUrl;
+    // Use the formatted name with .mp4 extension; adjust extension as necessary
+    link.download = `${formatName(wallpaper.name)}.mp4`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
-  if (!wallpaper || !videoUrl) {
+  // Format the wallpaper name for display.
+  const formatName = (name) => {
+    if (!name) return 'Live_Wallpaper';
+    const tags = name.split('#').filter(Boolean);
+    const mainTag = tags.length ? tags[0] : 'Live_Wallpaper';
+    return mainTag.replace(/[^a-zA-Z0-9\s]/g, ' ').replace(/\s+/g, '_').trim();
+  };
+
+  const extractTags = (name) => {
+    if (!name) return [];
+    return name.split('#').slice(1).map((tag) =>
+      tag.replace(/[^a-zA-Z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim()
+    );
+  };
+
+  if (!wallpaper || !blobVideoUrl) {
     return (
       <div className="flex items-center justify-center h-screen bg-white">
         <div className="w-10 h-10 border-4 border-gray-300 border-t-gray-700 rounded-full animate-spin" />
@@ -86,17 +113,17 @@ export default function WallpaperDetailPage() {
       {/* Back Button */}
       <Link href={`/${category}`}>
         <div className="absolute top-6 left-6 z-50 bg-gray-100 hover:bg-gray-200 shadow-md rounded-full p-3 transition" aria-label="Go back">
-          <svg className="w-6 h-6 text-gray-800" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <svg className="w-6 h-6 text-gray-800" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
             <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
           </svg>
         </div>
       </Link>
 
-      {/* Video Section */}
+      {/* Video Preview Section */}
       <div className="max-w-4xl mx-auto rounded-2xl overflow-hidden border border-gray-200 shadow-lg bg-gray-50">
         <video
           ref={videoRef}
-          src={videoUrl}
+          src={blobVideoUrl}
           muted
           loop
           playsInline
@@ -132,36 +159,29 @@ export default function WallpaperDetailPage() {
           {isPlaying ? <PauseIcon /> : <PlayIcon />}
           {isPlaying ? 'Pause' : 'Play'}
         </button>
-
+        {/* Download Button */}
         <button
           onClick={handleDownload}
-          disabled={isDownloading}
-          className="bg-gray-800 hover:bg-gray-900 text-white px-6 py-2 rounded-xl shadow-md flex items-center gap-2 font-semibold focus:outline-none focus:ring-2 focus:ring-gray-500 disabled:opacity-70 disabled:cursor-not-allowed"
+          className="bg-gray-800 hover:bg-gray-900 text-white px-6 py-2 rounded-xl shadow-md flex items-center gap-2 font-semibold focus:outline-none focus:ring-2 focus:ring-gray-500"
           aria-label="Download wallpaper"
         >
-          {isDownloading ? 'Downloading...' : <><DownloadIcon /> Download</>}
+          Download
         </button>
       </div>
     </div>
   );
 }
 
-// Icons
-
 const PlayIcon = () => (
   <svg className="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 4l15 8-15 8V4z" />
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 4l15 8-15 8V4z" />
   </svg>
 );
 
 const PauseIcon = () => (
   <svg className="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 9v6m4-6v6" />
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 9v6m4-6v6" />
   </svg>
 );
 
-const DownloadIcon = () => (
-  <svg className="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4" />
-  </svg>
-);
+export default WallpaperDetailPage; 
