@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useRef, useEffect } from 'react';
+import React, { useCallback, useRef, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { FixedSizeGrid as Grid } from 'react-window';
 import AutoSizer from 'react-virtualized-auto-sizer';
@@ -8,16 +8,64 @@ import AutoSizer from 'react-virtualized-auto-sizer';
 const CELL_WIDTH = 350;
 const CELL_HEIGHT = 600;
 const GUTTER_SIZE = 8;
-const LOCAL_STORAGE_KEY = 'wallpapersData';
+const CACHE_KEY = 'wallpapersData';
+const CACHE_NAME = 'wallpapers-cache';
 
-const WallpaperGrid = ({ wallpapers }) => {
+const WallpaperGrid = ({ wallpapers: initialWallpapers }) => {
   const router = useRouter();
   const videoRefs = useRef({});
+  // Use state to hold wallpapers so that they persist on screen
+  const [wallpapers, setWallpapers] = useState([]);
+  // Track loaded wallpapers to prevent re-fetching
+  const loadedWallpapers = useRef(new Set());
 
-  // Store wallpapers to local storage when loaded.
+  // Initialize wallpapers from initial props or cache
   useEffect(() => {
-    if (wallpapers && wallpapers.length > 0) {
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(wallpapers));
+    async function initializeWallpapers() {
+      // First try to load from cache
+      if ('caches' in window) {
+        try {
+          const cache = await caches.open(CACHE_NAME);
+          const response = await cache.match(CACHE_KEY);
+          if (response) {
+            const cachedData = await response.json();
+            setWallpapers(cachedData);
+            cachedData.forEach((_, index) => loadedWallpapers.current.add(index));
+            return;
+          }
+        } catch (err) {
+          console.error('Error loading wallpapers from cache:', err);
+        }
+      }
+      
+      // Fallback to initial wallpapers if no cache
+      if (initialWallpapers && initialWallpapers.length > 0) {
+        setWallpapers(initialWallpapers);
+        initialWallpapers.forEach((_, index) => loadedWallpapers.current.add(index));
+      }
+    }
+    
+    initializeWallpapers();
+  }, [initialWallpapers]);
+
+  // Store wallpapers to cache whenever they change
+  useEffect(() => {
+    async function storeWallpapersInCache() {
+      if ('caches' in window && wallpapers.length > 0) {
+        try {
+          const cache = await caches.open(CACHE_NAME);
+          const response = new Response(JSON.stringify(wallpapers), {
+            headers: { 'Content-Type': 'application/json' },
+          });
+          await cache.put(CACHE_KEY, response);
+        } catch (err) {
+          console.error('Error saving wallpapers to cache:', err);
+        }
+      }
+    }
+    
+    if (wallpapers.length > 0) {
+      storeWallpapersInCache();
     }
   }, [wallpapers]);
 
@@ -50,20 +98,15 @@ const WallpaperGrid = ({ wallpapers }) => {
     }
   }, []);
 
-  const handleWallpaperClick = useCallback(
-    (index) => {
-      const encodedWallpaper = encodeURIComponent(JSON.stringify(wallpapers[index]));
-      router.push(`/wallpaper/${index}?data=${encodedWallpaper}`);
-    },
-    [wallpapers, router]
-  );
+  const handleWallpaperClick = useCallback((index) => {
+    const encodedWallpaper = encodeURIComponent(JSON.stringify(wallpapers[index]));
+    router.push(`/wallpaper/${index}?data=${encodedWallpaper}`);
+  }, [wallpapers, router]);
 
-  // Updated handleDownload to use pre-converted blob URL if available.
   const handleDownload = useCallback((e, item, displayName) => {
     e.stopPropagation();
     const a = document.createElement('a');
-    // Use blobUrl if available; otherwise fallback to original media URL.
-    a.href = item.blobUrl || item.media;
+    a.href = item.media;
     a.setAttribute('download', `${displayName.replace(/[^a-z0-9]/gi, '_')}.mp4`);
     a.style.display = 'none';
     document.body.appendChild(a);
@@ -80,6 +123,13 @@ const WallpaperGrid = ({ wallpapers }) => {
     const displayName = formatName(item.name);
     const tags = extractTags(item.name);
 
+    // Mark this wallpaper as loaded when it renders
+    useEffect(() => {
+      if (!loadedWallpapers.current.has(index)) {
+        loadedWallpapers.current.add(index);
+      }
+    }, [index]);
+
     return (
       <div
         style={{
@@ -94,12 +144,11 @@ const WallpaperGrid = ({ wallpapers }) => {
       >
         <video
           ref={el => (videoRefs.current[index] = el)}
-          // Use blobUrl for video source if available, otherwise use the original media URL.
-          src={item.blobUrl || item.media}
+          src={item.media}
           muted
           loop
           playsInline
-          preload="metadata"
+          preload={loadedWallpapers.current.has(index) ? 'auto' : 'metadata'}
           className="absolute inset-0 w-full h-full object-cover rounded-lg transition-transform duration-300 group-hover:scale-105"
           style={{ opacity: 1, transform: 'translateZ(0)' }}
           onMouseEnter={() => handleMouseEnter(index)}
@@ -133,7 +182,10 @@ const WallpaperGrid = ({ wallpapers }) => {
             {tags.length > 0 && (
               <div className="flex flex-wrap gap-1 mt-1">
                 {tags.slice(0, 3).map((tag, i) => (
-                  <span key={i} className="text-[10px] sm:text-xs bg-black/40 text-white/80 px-1.5 py-0.5 rounded-full">
+                  <span
+                    key={i}
+                    className="text-[10px] sm:text-xs bg-black/40 text-white/80 px-1.5 py-0.5 rounded-full"
+                  >
                     {tag}
                   </span>
                 ))}

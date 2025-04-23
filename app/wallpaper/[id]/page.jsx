@@ -13,7 +13,7 @@ export default function WallpaperDetailPage() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
 
-  // Fetch wallpaper data from URL query parameters
+  // Fetch wallpaper data
   useEffect(() => {
     const encodedData = searchParams.get('data');
     if (encodedData) {
@@ -28,7 +28,7 @@ export default function WallpaperDetailPage() {
     }
   }, [searchParams, router]);
 
-  // Convert the wallpaper URL into a blob URL for preview & download
+  // Convert the wallpaper URL into a blob temp URL for preview & download
   useEffect(() => {
     let tempUrl;
     let abort = false;
@@ -41,7 +41,7 @@ export default function WallpaperDetailPage() {
         tempUrl = URL.createObjectURL(blob);
         if (!abort) setBlobUrl(tempUrl);
       } catch {
-        // Fallback: use the original URL if blob conversion fails
+        // fallback: just use the original URL if blob fails
         if (!abort) setBlobUrl(wallpaper.media);
       }
     }
@@ -61,44 +61,39 @@ export default function WallpaperDetailPage() {
 
   const extractTags = (name) => {
     if (!name) return [];
-    return name
-      .split('#')
-      .slice(1)
-      .map((tag) =>
-        tag.replace(/[^a-zA-Z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim()
-      );
+    return name.split('#').slice(1).map(tag =>
+      tag.replace(/[^a-zA-Z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim()
+    );
   };
 
   const togglePlay = () => {
     if (videoRef.current) {
-      if (isPlaying) {
-        videoRef.current.pause();
-      } else {
-        videoRef.current.play().catch(() => {});
-      }
+      if (isPlaying) videoRef.current.pause();
+      else videoRef.current.play().catch(() => {});
       setIsPlaying(!isPlaying);
     }
   };
 
-  // Trigger the download directly when the button is hit.
-  const handleDownload = (e) => {
-    // Prevent any default behavior
-    e.preventDefault();
-    
-    if (!blobUrl || !wallpaper) return;
-    
+  const handleDownload = async () => {
+    if (!blobUrl) return;
     setIsDownloading(true);
-    
-    // Create an anchor element, assign the blob URL, and simulate click immediately.
-    const link = document.createElement('a');
-    link.href = blobUrl;
-    link.download = `${formatName(wallpaper.name).replace(/[^a-z0-9]/gi, '_')}.mp4`;
-    
-    // Append link to body and trigger click
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    
+    try {
+      // Download using blob URL (works if CORS for fetch succeeded)
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = `${formatName(wallpaper.name).replace(/[^a-z0-9]/gi, '_')}.mp4`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch {
+      // fallback to direct link
+      const fallbackLink = document.createElement('a');
+      fallbackLink.href = wallpaper.media;
+      fallbackLink.download = `${formatName(wallpaper.name).replace(/[^a-z0-9]/gi, '_')}.mp4`;
+      document.body.appendChild(fallbackLink);
+      fallbackLink.click();
+      document.body.removeChild(fallbackLink);
+    }
     setIsDownloading(false);
   };
 
@@ -119,13 +114,7 @@ export default function WallpaperDetailPage() {
       {/* Back Button */}
       <Link href={`/${category}`} className="absolute top-6 left-6 z-50">
         <div className="bg-gray-100 hover:bg-gray-200 shadow-md rounded-full p-3 transition">
-          <svg
-            className="w-6 h-6 text-gray-800"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={1.5}
-          >
+          <svg className="w-6 h-6 text-gray-800" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
           </svg>
         </div>
@@ -147,7 +136,7 @@ export default function WallpaperDetailPage() {
         />
       </div>
 
-      {/* Info Section */}
+      {/* Info */}
       <div className="text-center mt-10">
         <h1 className="text-3xl md:text-5xl font-bold text-gray-800">{displayName}</h1>
         {tags.length > 0 && (
