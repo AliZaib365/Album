@@ -4,6 +4,8 @@ import React, { useCallback, useRef, useEffect, useState, memo } from 'react';
 import { useRouter } from 'next/navigation';
 import { FixedSizeGrid as Grid } from 'react-window';
 import AutoSizer from 'react-virtualized-auto-sizer';
+import Skeleton from 'react-loading-skeleton';
+import 'react-loading-skeleton/dist/skeleton.css'; // Import skeleton styles
 
 const CELL_WIDTH = 350;
 const CELL_HEIGHT = 600;
@@ -114,7 +116,19 @@ const WallpaperGrid = ({ wallpapers = [] }) => {
         )}
 
         {/* Skeleton animation overlay while video is loading */}
-        {!loaded && !hasError && <div className="absolute inset-0 bg-gray-300 animate-pulse" />}
+        {!loaded && !hasError && (
+          <Skeleton
+            height="100%"
+            width="100%"
+            style={{
+              borderRadius: '10px',
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              zIndex: 1,
+            }}
+          />
+        )}
 
         <button
           onClick={(e) => handleDownload(e, item, displayName)}
@@ -128,7 +142,7 @@ const WallpaperGrid = ({ wallpapers = [] }) => {
             viewBox="0 0 24 24"
             strokeWidth="1.5"
             stroke="currentColor"
-            className="w-4 h-4" 
+            className="w-4 h-4"
           >
             <path
               strokeLinecap="round"
@@ -165,7 +179,6 @@ const WallpaperGrid = ({ wallpapers = [] }) => {
     <div className="w-full h-[100vh]">
       <AutoSizer>
         {({ height, width }) => {
-           const adjustedWidth = 2000;
           const columnCount = Math.floor(width / (CELL_WIDTH + GUTTER_SIZE)) || 1;
           const rowCount = Math.ceil(wallpapers.length / columnCount);
           return (
@@ -175,7 +188,7 @@ const WallpaperGrid = ({ wallpapers = [] }) => {
               height={height}
               rowCount={rowCount}
               rowHeight={CELL_HEIGHT + GUTTER_SIZE}
-              width={adjustedWidth}
+              width={width}
               itemData={{ wallpapers, columnCount }}
             >
               {Cell}
