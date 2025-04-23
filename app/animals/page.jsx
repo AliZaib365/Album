@@ -1,20 +1,34 @@
+'use client';
+
+import { useEffect, useState } from "react";
 import WallpaperGrid from "../components/WallpaperGrid";
 
-const AbstractPage = async () => {
-  // Shuffle the API URL by appending a random query parameter
-  const baseUrl = process.env.NEXT_PUBLIC_WALLPAPER_API_ANIMALS;
-  const separator = baseUrl.includes("?") ? "&" : "?";
-  const shuffledUrl = `${baseUrl}${separator}shuffle=${Math.random()}`;
+const AnimalsPage = () => {
+  const [wallpapers, setWallpapers] = useState([]);
+  const category = "Animals";
 
-  const res = await fetch(shuffledUrl, {
-    cache: "no-store",
-  });
+  useEffect(() => {
+    const fetchWallpapers = async () => {
+      // Shuffle the API URL by appending a random query parameter
+      const baseUrl = process.env.NEXT_PUBLIC_WALLPAPER_API_ANIMALS;
+      const separator = baseUrl.includes('?') ? '&' : '?';
+      const shuffledUrl = `${baseUrl}${separator}shuffle=${Math.random()}`;
 
-  const data = await res.json();
-  const wallpapers = data.categories || [];
+      // Fetch wallpapers from the shuffled API URL
+      try {
+        const res = await fetch(shuffledUrl, {
+          cache: "no-store",
+        });
+        const data = await res.json();
+        const fetchedWallpapers = data.categories || [];
+        setWallpapers(fetchedWallpapers);
+      } catch (err) {
+        console.error('Error fetching wallpapers:', err);
+      }
+    };
 
-  // Manually define the category title for this page
-  const category = "ANIMALS"; 
+    fetchWallpapers();
+  }, []);
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -29,4 +43,4 @@ const AbstractPage = async () => {
   );
 };
 
-export default AbstractPage;  
+export default AnimalsPage;
