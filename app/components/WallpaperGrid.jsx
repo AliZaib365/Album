@@ -128,7 +128,7 @@ const WallpaperGrid = ({ wallpapers = [] }) => {
             viewBox="0 0 24 24"
             strokeWidth="1.5"
             stroke="currentColor"
-            className="w-4 h-4"
+            className="w-4 h-4" 
           >
             <path
               strokeLinecap="round"
@@ -165,6 +165,7 @@ const WallpaperGrid = ({ wallpapers = [] }) => {
     <div className="w-full h-[100vh]">
       <AutoSizer>
         {({ height, width }) => {
+           const adjustedWidth = 2000;
           const columnCount = Math.floor(width / (CELL_WIDTH + GUTTER_SIZE)) || 1;
           const rowCount = Math.ceil(wallpapers.length / columnCount);
           return (
@@ -174,7 +175,7 @@ const WallpaperGrid = ({ wallpapers = [] }) => {
               height={height}
               rowCount={rowCount}
               rowHeight={CELL_HEIGHT + GUTTER_SIZE}
-              width={width}
+              width={adjustedWidth}
               itemData={{ wallpapers, columnCount }}
             >
               {Cell}
