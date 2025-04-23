@@ -1,60 +1,45 @@
 'use client';
 
-import React, { useCallback, useRef, useEffect, useState } from 'react';
+import React, { useCallback, useRef, useEffect, useState, memo } from 'react';
 import { useRouter } from 'next/navigation';
 import { FixedSizeGrid as Grid } from 'react-window';
 import AutoSizer from 'react-virtualized-auto-sizer';
+import Skeleton from 'react-loading-skeleton';
+import 'react-loading-skeleton/dist/skeleton.css'; // Import skeleton styles
 
 const CELL_WIDTH = 350;
 const CELL_HEIGHT = 600;
 const GUTTER_SIZE = 8;
-const CACHE_KEY = 'wallpapersData';
-const CACHE_NAME = 'wallpapers-cache';
+const LOCAL_STORAGE_KEY = 'wallpapersData';
 
 const WallpaperGrid = ({ wallpapers: initialWallpapers }) => {
   const router = useRouter();
   const videoRefs = useRef({});
-  // Use state to hold wallpapers so that they persist on screen.
   const [wallpapers, setWallpapers] = useState(initialWallpapers || []);
+  const [isLoading, setIsLoading] = useState(true); // Loading state for skeleton animation
 
-  // Retrieve wallpapers from Cache Storage on component mount.
+  // On component mount, load wallpapers from local storage if available.
   useEffect(() => {
-    async function loadWallpapersFromCache() {
-      if ('caches' in window) {
-        try {
-          const cache = await caches.open(CACHE_NAME);
-          const response = await cache.match(CACHE_KEY);
-          if (response) {
-            const cachedData = await response.json();
-            setWallpapers(cachedData);
-            return;
-          }
-        } catch (err) {
-          console.error('Error loading wallpapers from cache:', err);
-        }
+    const storedData = localStorage.getItem(LOCAL_STORAGE_KEY);
+    if (storedData) {
+      try {
+        setWallpapers(JSON.parse(storedData));
+      } catch (err) {
+        console.error('Error parsing wallpapers from local storage:', err);
+        setWallpapers(initialWallpapers || []);
       }
-      // Fallback: use the initial wallpapers provided.
+    } else {
+      // If not in local storage, use the initial wallpapers provided.
       setWallpapers(initialWallpapers || []);
     }
-    loadWallpapersFromCache();
+    setIsLoading(false); // Stop loading once wallpapers are set
   }, [initialWallpapers]);
 
-  // Store wallpapers to Cache Storage whenever they change.
+  // Store wallpapers to local storage whenever the wallpapers state changes.
   useEffect(() => {
-    async function storeWallpapersInCache() {
-      if ('caches' in window && wallpapers && wallpapers.length > 0) {
-        try {
-          const cache = await caches.open(CACHE_NAME);
-          const response = new Response(JSON.stringify(wallpapers), {
-            headers: { 'Content-Type': 'application/json' },
-          });
-          await cache.put(CACHE_KEY, response);
-        } catch (err) {
-          console.error('Error saving wallpapers to cache:', err);
-        }
-      }
+    if (wallpapers.length > 0) {
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(wallpapers));
     }
-    storeWallpapersInCache();
   }, [wallpapers]);
 
   const formatName = useCallback((name) => {
@@ -102,10 +87,28 @@ const WallpaperGrid = ({ wallpapers: initialWallpapers }) => {
     setTimeout(() => document.body.removeChild(a), 100);
   }, []);
 
-  const Cell = ({ columnIndex, rowIndex, style, data }) => {
-    const { wallpapers, columnCount } = data;
+  const Cell = memo(({ columnIndex, rowIndex, style, data }) => {
+    const { wallpapers, columnCount, isLoading } = data;
     const index = rowIndex * columnCount + columnIndex;
+
     if (index >= wallpapers.length) return null;
+
+    if (isLoading) {
+      return (
+        <div
+          style={{
+            ...style,
+            left: Number(style.left) + GUTTER_SIZE,
+            top: Number(style.top) + GUTTER_SIZE,
+            width: Number(style.width) - GUTTER_SIZE,
+            height: Number(style.height) - GUTTER_SIZE,
+          }}
+          className="relative group overflow-hidden rounded-lg shadow-md hover:shadow-lg transition-all duration-300 cursor-pointer"
+        >
+          <Skeleton height="100%" width="100%" borderRadius="10px" />
+        </div>
+      );
+    }
 
     const item = wallpapers[index];
     const displayName = formatName(item.name);
@@ -120,7 +123,7 @@ const WallpaperGrid = ({ wallpapers: initialWallpapers }) => {
           width: Number(style.width) - GUTTER_SIZE,
           height: Number(style.height) - GUTTER_SIZE,
         }}
-        className="w-screen flex flex-wrap relative group overflow-hidden rounded-lg shadow-md hover:shadow-lg transition-all duration-300 cursor-pointer"
+        className="relative group overflow-hidden rounded-lg shadow-md hover:shadow-lg transition-all duration-300 cursor-pointer"
         onClick={() => handleWallpaperClick(index)}
       >
         <video
@@ -130,13 +133,12 @@ const WallpaperGrid = ({ wallpapers: initialWallpapers }) => {
           loop
           playsInline
           preload="metadata"
+          loading="lazy" // Lazy loading for performance
           className="absolute inset-0 w-full h-full object-cover rounded-lg transition-transform duration-300 group-hover:scale-105"
-          style={{ opacity: 1, transform: 'translateZ(0)' }}
           onMouseEnter={() => handleMouseEnter(index)}
           onMouseLeave={() => handleMouseLeave(index)}
           onError={() => console.error(`Failed to load video at index ${index}`)}
         />
-
         <button
           onClick={(e) => handleDownload(e, item, displayName)}
           className="absolute top-2 right-2 bg-black/60 hover:bg-black text-white p-1.5 rounded-full z-10 opacity-0 group-hover:opacity-100 transition-opacity duration-300"
@@ -154,7 +156,6 @@ const WallpaperGrid = ({ wallpapers: initialWallpapers }) => {
             <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75v3a2.25 2.25 0 002.25 2.25h10.5A2.25 2.25 0 0019.5 15.75v-3m-6 3V3m0 12l-3-3m3 3l3-3" />
           </svg>
         </button>
-
         <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-end p-3 pointer-events-none">
           <div className="w-full">
             <h3 className="text-white font-medium text-xs sm:text-sm md:text-base truncate">
@@ -176,7 +177,7 @@ const WallpaperGrid = ({ wallpapers: initialWallpapers }) => {
         </div>
       </div>
     );
-  };
+  });
 
   return (
     <div className="w-full h-[100vh]">
@@ -192,7 +193,7 @@ const WallpaperGrid = ({ wallpapers: initialWallpapers }) => {
               rowCount={rowCount}
               rowHeight={CELL_HEIGHT + GUTTER_SIZE}
               width={width}
-              itemData={{ wallpapers, columnCount }}
+              itemData={{ wallpapers, columnCount, isLoading }}
             >
               {Cell}
             </Grid>
