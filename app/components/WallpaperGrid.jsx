@@ -11,6 +11,11 @@ const CELL_WIDTH = 350;
 const CELL_HEIGHT = 600;
 const GUTTER_SIZE = 8;
 
+// Helper function to build proxy URL
+const buildProxyUrl = (originalUrl) => {
+  return `/api/proxy?url=${encodeURIComponent(originalUrl)}`;
+};
+
 const WallpaperGrid = ({ wallpapers = [] }) => {
   const router = useRouter();
   const videoRefs = useRef({});
@@ -55,8 +60,10 @@ const WallpaperGrid = ({ wallpapers = [] }) => {
 
   const handleDownload = useCallback((e, item, displayName) => {
     e.stopPropagation();
+    // Use the proxy route instead of the original media URL
+    const proxyUrl = buildProxyUrl(item.media);
     const a = document.createElement('a');
-    a.href = item.media;
+    a.href = proxyUrl;
     a.setAttribute('download', `${displayName.replace(/[^a-z0-9]/gi, '_')}.mp4`);
     a.style.display = 'none';
     document.body.appendChild(a);
@@ -73,9 +80,35 @@ const WallpaperGrid = ({ wallpapers = [] }) => {
     const displayName = formatName(item.name);
     const tags = extractTags(item.name);
 
-    // Local state for video load status
+    // Local state for video load status, error, and blob URL.
     const [loaded, setLoaded] = useState(false);
     const [hasError, setHasError] = useState(false);
+    const [blobUrl, setBlobUrl] = useState(null);
+
+    useEffect(() => {
+      let isCancelled = false;
+      // Instead of fetching the original API URL directly, we fetch via our proxy which returns the resource.
+      const proxyUrl = buildProxyUrl(item.media);
+      fetch(proxyUrl)
+        .then((res) => {
+          if (!res.ok) throw new Error('Network response was not ok');
+          return res.blob();
+        })
+        .then((blob) => {
+          if (!isCancelled) {
+            const url = URL.createObjectURL(blob);
+            setBlobUrl(url);
+          }
+        })
+        .catch((err) => {
+          console.error(`Failed to convert media to blob at index ${index}:`, err);
+          setHasError(true);
+        });
+      return () => {
+        isCancelled = true;
+        if (blobUrl) URL.revokeObjectURL(blobUrl);
+      };
+    }, [item.media, index]);
 
     return (
       <div
@@ -94,25 +127,27 @@ const WallpaperGrid = ({ wallpapers = [] }) => {
             <p>Failed to load video</p>
           </div>
         ) : (
-          <video
-            ref={(el) => (videoRefs.current[index] = el)}
-            src={item.media}
-            muted
-            loop
-            playsInline
-            preload="metadata"
-            loading="lazy" // Lazy loading for performance
-            className={`absolute inset-0 w-full h-full object-cover rounded-lg transition-transform duration-300 ${
-              loaded ? 'group-hover:scale-105' : 'opacity-0'
-            }`}
-            onMouseEnter={() => handleMouseEnter(index)}
-            onMouseLeave={() => handleMouseLeave(index)}
-            onLoadedData={() => setLoaded(true)}
-            onError={() => {
-              console.error(`Failed to load video at index ${index}`);
-              setHasError(true);
-            }}
-          />
+          blobUrl && (
+            <video
+              ref={(el) => (videoRefs.current[index] = el)}
+              src={blobUrl}
+              muted
+              loop
+              playsInline
+              preload="metadata"
+              loading="lazy" // Lazy loading for performance
+              className={`absolute inset-0 w-full h-full object-cover rounded-lg transition-transform duration-300 ${
+                loaded ? 'group-hover:scale-105' : 'opacity-0'
+              }`}
+              onMouseEnter={() => handleMouseEnter(index)}
+              onMouseLeave={() => handleMouseLeave(index)}
+              onLoadedData={() => setLoaded(true)}
+              onError={() => {
+                console.error(`Failed to load video at index ${index}`);
+                setHasError(true);
+              }}
+            />
+          )
         )}
 
         {/* Skeleton animation overlay while video is loading */}
@@ -179,7 +214,7 @@ const WallpaperGrid = ({ wallpapers = [] }) => {
     <div className="w-full h-[100vh]">
       <AutoSizer>
         {({ height, width }) => {
-          const customwidth=2000;
+          const customwidth = 2000;
           const columnCount = Math.floor(width / (CELL_WIDTH + GUTTER_SIZE)) || 1;
           const rowCount = Math.ceil(wallpapers.length / columnCount);
           return (
