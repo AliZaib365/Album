@@ -11,18 +11,17 @@ const DEFAULT_CELL_WIDTH = 350;
 const DEFAULT_CELL_HEIGHT = 600;
 const GUTTER_SIZE = 8;
 
-// Improved cache implementation for Safari
-const blobCache = new Map();
-const MAX_CACHE_SIZE = 10;
+// In-memory cache for blob URLs.
+const blobCache = {};
 
-const addToCache = (url, blobUrl) => {
-  if (blobCache.size >= MAX_CACHE_SIZE) {
-    const firstKey = blobCache.keys().next().value;
-    URL.revokeObjectURL(blobCache.get(firstKey));
-    blobCache.delete(firstKey);
-  }
-  blobCache.set(url, blobUrl);
-};
+// Helper function to convert a Blob to a Data URL (base64 string).
+const blobToDataURL = (blob) =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = reject;
+    reader.onloadend = () => resolve(reader.result);
+    reader.readAsDataURL(blob);
+  });
 
 const buildProxyUrl = (originalUrl) => {
   return `/api/proxy?url=${encodeURIComponent(originalUrl)}`;
@@ -32,6 +31,7 @@ const WallpaperGrid = ({ wallpapers = [] }) => {
   const router = useRouter();
   const videoRefs = useRef({});
 
+  // Memoized formatting functions.
   const formatName = useCallback((name) => {
     if (!name) return 'Live Wallpaper';
     const tags = name.split('#').filter(Boolean);
@@ -50,8 +50,6 @@ const WallpaperGrid = ({ wallpapers = [] }) => {
   const handleMouseEnter = useCallback((index) => {
     const video = videoRefs.current[index];
     if (video) {
-      video.muted = true;
-      video.playsInline = true;
       video.play().catch((e) => console.debug('Autoplay prevented:', e));
     }
   }, []);
@@ -84,6 +82,7 @@ const WallpaperGrid = ({ wallpapers = [] }) => {
     setTimeout(() => document.body.removeChild(a), 100);
   }, []);
 
+  // Cell component.
   const Cell = memo(({ columnIndex, rowIndex, style, data }) => {
     const { wallpapers, columnCount } = data;
     const index = rowIndex * columnCount + columnIndex;
@@ -96,30 +95,56 @@ const WallpaperGrid = ({ wallpapers = [] }) => {
     const [loaded, setLoaded] = useState(false);
     const [hasError, setHasError] = useState(false);
     const [blobUrl, setBlobUrl] = useState(null);
+    const [isBlobReady, setBlobReady] = useState(false); // Indicates if the blob/data URL is ready
     const cellRef = useRef(null);
 
+    // Key to store/retrieve the cached video in localStorage.
+    const cacheKey = `blob_${encodeURIComponent(item.media)}`;
+
     const loadBlob = useCallback(() => {
-      if (blobCache.has(item.media)) {
-        setBlobUrl(blobCache.get(item.media));
+      // First, check in-memory cache.
+      if (blobCache[item.media]) {
+        setBlobUrl(blobCache[item.media]);
+        setBlobReady(true);
         return;
       }
+      
+      // Next, check localStorage.
+      const localData = localStorage.getItem(cacheKey);
+      if (localData) {
+        blobCache[item.media] = localData;
+        setBlobUrl(localData);
+        setBlobReady(true);
+        return;
+      }
+
+      // If not cached, fetch the media via proxy.
       const proxyUrl = buildProxyUrl(item.media);
       fetch(proxyUrl)
         .then((res) => {
           if (!res.ok) throw new Error('Network response was not ok');
           return res.blob();
         })
-        .then((blob) => {
-          const url = URL.createObjectURL(blob);
-          addToCache(item.media, url);
-          setBlobUrl(url);
+        .then((blob) => blobToDataURL(blob))
+        .then((dataUrl) => {
+          // Cache in memory.
+          blobCache[item.media] = dataUrl;
+          // Cache in localStorage.
+          try {
+            localStorage.setItem(cacheKey, dataUrl);
+          } catch (err) {
+            console.warn('LocalStorage caching failed:', err);
+          }
+          setBlobUrl(dataUrl);
+          setBlobReady(true);
         })
         .catch((err) => {
           console.error(`Failed to convert media to blob at index ${index}:`, err);
           setHasError(true);
         });
-    }, [item.media, index]);
+    }, [item.media, cacheKey, index]);
 
+    // Use IntersectionObserver to load blob when the cell is in view.
     useEffect(() => {
       const node = cellRef.current;
       if (!node) return;
@@ -132,37 +157,14 @@ const WallpaperGrid = ({ wallpapers = [] }) => {
             }
           });
         },
-        { threshold: 0.1 } // Changed from 0.25 for better Safari compatibility
+        { threshold: 0.25 }
       );
       observer.observe(node);
       return () => observer.disconnect();
     }, [loadBlob]);
 
-    useEffect(() => {
-      const video = videoRefs.current[index];
-      if (!video) return;
-
-      const enterHandler = () => handleMouseEnter(index);
-      const leaveHandler = () => handleMouseLeave(index);
-
-      video.addEventListener('mouseenter', enterHandler);
-      video.addEventListener('mouseleave', leaveHandler);
-
-      return () => {
-        video.removeEventListener('mouseenter', enterHandler);
-        video.removeEventListener('mouseleave', leaveHandler);
-      };
-    }, [handleMouseEnter, handleMouseLeave, index]);
-
-    useEffect(() => {
-      return () => {
-        if (blobUrl) {
-          URL.revokeObjectURL(blobUrl);
-        }
-      };
-    }, [blobUrl]);
-
-    const videoSrc = blobUrl || item.media;
+    // Use the original media URL until the blob/data URL is ready.
+    const videoSrc = isBlobReady ? blobUrl : item.media;
 
     return (
       <div
@@ -184,23 +186,20 @@ const WallpaperGrid = ({ wallpapers = [] }) => {
         ) : (
           <video
             ref={(el) => (videoRefs.current[index] = el)}
-            src={videoSrc}
+            src={videoSrc || item.media}
             muted
             loop
             playsInline
-            webkit-playsinline="true"
-            x-webkit-airplay="allow"
-            preload="none"
-            className={`absolute inset-0 w-full h-full object-cover rounded-lg transition-all duration-300 ${
-              loaded ? 'group-hover:brightness-110' : 'opacity-0'
+            preload="metadata"
+            className={`absolute inset-0 w-full h-full object-cover rounded-lg transition-opacity duration-500 ${
+              loaded ? 'opacity-100 group-hover:scale-105' : 'opacity-0'
             }`}
+            onMouseEnter={() => handleMouseEnter(index)}
+            onMouseLeave={() => handleMouseLeave(index)}
             onLoadedData={() => setLoaded(true)}
             onError={() => {
               console.error(`Failed to load video at index ${index}`);
               setHasError(true);
-            }}
-            onMouseEnter={(e) => {
-              if (!loaded) e.target.load();
             }}
           />
         )}
@@ -268,13 +267,11 @@ const WallpaperGrid = ({ wallpapers = [] }) => {
     <div className="w-full h-[100vh]">
       <AutoSizer>
         {({ height, width }) => {
-          const customwidth=2000;
           const isMobile = width < 600;
           const columnCount = isMobile ? 1 : Math.floor(width / (DEFAULT_CELL_WIDTH + GUTTER_SIZE));
           const cellWidth = isMobile ? width - GUTTER_SIZE * 2 : DEFAULT_CELL_WIDTH;
-          const cellHeight = isMobile
-            ? (cellWidth * DEFAULT_CELL_HEIGHT) / DEFAULT_CELL_WIDTH
-            : DEFAULT_CELL_HEIGHT;
+          const cellHeight =
+            isMobile ? (cellWidth * DEFAULT_CELL_HEIGHT) / DEFAULT_CELL_WIDTH : DEFAULT_CELL_HEIGHT;
           const rowCount = Math.ceil(wallpapers.length / columnCount);
 
           return (
@@ -284,7 +281,7 @@ const WallpaperGrid = ({ wallpapers = [] }) => {
               height={height}
               rowCount={rowCount}
               rowHeight={cellHeight + GUTTER_SIZE}
-              width={customwidth}
+              width={width}
               itemData={{ wallpapers, columnCount }}
             >
               {Cell}
