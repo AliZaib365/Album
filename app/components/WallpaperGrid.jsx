@@ -11,18 +11,11 @@ const DEFAULT_CELL_WIDTH = 350;
 const DEFAULT_CELL_HEIGHT = 600;
 const GUTTER_SIZE = 8;
 
-// In-memory cache for blob URLs.
+// In-memory caches for video and thumbnail blob URLs.
 const blobCache = {};
+const thumbCache = {};
 
-// Helper function to convert a Blob to a Data URL (base64 string).
-const blobToDataURL = (blob) =>
-  new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = reject;
-    reader.onloadend = () => resolve(reader.result);
-    reader.readAsDataURL(blob);
-  });
-
+// Helper function to build the proxy URL.
 const buildProxyUrl = (originalUrl) => {
   return `/api/proxy?url=${encodeURIComponent(originalUrl)}`;
 };
@@ -87,64 +80,78 @@ const WallpaperGrid = ({ wallpapers = [] }) => {
     const { wallpapers, columnCount } = data;
     const index = rowIndex * columnCount + columnIndex;
     if (index >= wallpapers.length) return null;
-
+    
     const item = wallpapers[index];
     const displayName = useMemo(() => formatName(item.name), [item.name, formatName]);
     const tags = useMemo(() => extractTags(item.name), [item.name, extractTags]);
-
+    
+    // Video state.
     const [loaded, setLoaded] = useState(false);
     const [hasError, setHasError] = useState(false);
     const [blobUrl, setBlobUrl] = useState(null);
-    const [isBlobReady, setBlobReady] = useState(false); // Indicates if the blob/data URL is ready
+    const [isBlobReady, setBlobReady] = useState(false);
+    
+    // Thumbnail state.
+    const [thumbBlobUrl, setThumbBlobUrl] = useState(null);
+    const [isThumbBlobReady, setThumbBlobReady] = useState(false);
+    
     const cellRef = useRef(null);
-
-    // Key to store/retrieve the cached video in localStorage.
-    const cacheKey = `blob_${encodeURIComponent(item.media)}`;
-
+    
+    // Determine the thumbnail URL.
+    const thumbUrl =
+      item.Thumbnail && item.Thumbnail.length > 0 ? item.Thumbnail[0].media : null;
+    
+    // Function to load video as blob.
     const loadBlob = useCallback(() => {
-      // First, check in-memory cache.
       if (blobCache[item.media]) {
         setBlobUrl(blobCache[item.media]);
         setBlobReady(true);
+      } else {
+        const proxyUrl = buildProxyUrl(item.media);
+        fetch(proxyUrl)
+          .then((res) => {
+            if (!res.ok) throw new Error('Network response was not ok');
+            return res.blob();
+          })
+          .then((blob) => {
+            const url = URL.createObjectURL(blob);
+            blobCache[item.media] = url;
+            setBlobUrl(url);
+            setBlobReady(true);
+          })
+          .catch((err) => {
+            console.error(`Failed to convert video media to blob at index ${index}:`, err);
+            setHasError(true);
+          });
+      }
+    }, [item.media, index]);
+    
+    // Function to load thumbnail as blob.
+    const loadThumbBlob = useCallback(() => {
+      if (!thumbUrl) return;
+      if (thumbCache[thumbUrl]) {
+        setThumbBlobUrl(thumbCache[thumbUrl]);
+        setThumbBlobReady(true);
         return;
       }
-      
-      // Next, check localStorage.
-      const localData = localStorage.getItem(cacheKey);
-      if (localData) {
-        blobCache[item.media] = localData;
-        setBlobUrl(localData);
-        setBlobReady(true);
-        return;
-      }
-
-      // If not cached, fetch the media via proxy.
-      const proxyUrl = buildProxyUrl(item.media);
+      const proxyUrl = buildProxyUrl(thumbUrl);
       fetch(proxyUrl)
         .then((res) => {
           if (!res.ok) throw new Error('Network response was not ok');
           return res.blob();
         })
-        .then((blob) => blobToDataURL(blob))
-        .then((dataUrl) => {
-          // Cache in memory.
-          blobCache[item.media] = dataUrl;
-          // Cache in localStorage.
-          try {
-            localStorage.setItem(cacheKey, dataUrl);
-          } catch (err) {
-            console.warn('LocalStorage caching failed:', err);
-          }
-          setBlobUrl(dataUrl);
-          setBlobReady(true);
+        .then((blob) => {
+          const url = URL.createObjectURL(blob);
+          thumbCache[thumbUrl] = url;
+          setThumbBlobUrl(url);
+          setThumbBlobReady(true);
         })
         .catch((err) => {
-          console.error(`Failed to convert media to blob at index ${index}:`, err);
-          setHasError(true);
+          console.error(`Failed to convert thumbnail to blob at index ${index}:`, err);
         });
-    }, [item.media, cacheKey, index]);
-
-    // Use IntersectionObserver to load blob when the cell is in view.
+    }, [thumbUrl, index]);
+    
+    // Use IntersectionObserver to load blobs when the cell is in view.
     useEffect(() => {
       const node = cellRef.current;
       if (!node) return;
@@ -153,6 +160,7 @@ const WallpaperGrid = ({ wallpapers = [] }) => {
           entries.forEach((entry) => {
             if (entry.isIntersecting) {
               loadBlob();
+              if (thumbUrl) loadThumbBlob();
               observer.disconnect();
             }
           });
@@ -161,11 +169,12 @@ const WallpaperGrid = ({ wallpapers = [] }) => {
       );
       observer.observe(node);
       return () => observer.disconnect();
-    }, [loadBlob]);
-
-    // Use the original media URL until the blob/data URL is ready.
-    const videoSrc = isBlobReady ? blobUrl : item.media;
-
+    }, [loadBlob, loadThumbBlob, thumbUrl]);
+    
+    // Use only the blob URLs (do not fall back to original URLs).
+    const videoSrc = isBlobReady ? blobUrl : null;
+    const imageSrc = isThumbBlobReady ? thumbBlobUrl : null;
+    
     return (
       <div
         ref={cellRef}
@@ -179,31 +188,44 @@ const WallpaperGrid = ({ wallpapers = [] }) => {
         className="relative group overflow-hidden rounded-lg shadow-md hover:shadow-lg transition-all duration-300 cursor-pointer"
         onClick={() => handleWallpaperClick(index)}
       >
+        {/* Render the thumbnail image if its blob URL is ready */}
+        {thumbUrl && imageSrc && (
+          <img
+            src={imageSrc}
+            alt={displayName}
+            className="absolute inset-0 w-full h-full object-cover rounded-lg transition-opacity duration-500"
+            style={{ opacity: 1 }}
+          />
+        )}
         {hasError ? (
           <div className="absolute inset-0 flex items-center justify-center bg-gray-200 text-gray-500">
             <p>Failed to load video</p>
           </div>
         ) : (
-          <video
-            ref={(el) => (videoRefs.current[index] = el)}
-            src={videoSrc || item.media}
-            muted
-            loop
-            playsInline
-            preload="metadata"
-            className={`absolute inset-0 w-full h-full object-cover rounded-lg transition-opacity duration-500 ${
-              loaded ? 'opacity-100 group-hover:scale-105' : 'opacity-0'
-            }`}
-            onMouseEnter={() => handleMouseEnter(index)}
-            onMouseLeave={() => handleMouseLeave(index)}
-            onLoadedData={() => setLoaded(true)}
-            onError={() => {
-              console.error(`Failed to load video at index ${index}`);
-              setHasError(true);
-            }}
-          />
+          // Render video only when its blob URL is ready.
+          videoSrc && (
+            <video
+              ref={(el) => (videoRefs.current[index] = el)}
+              src={videoSrc}
+              muted
+              loop
+              playsInline
+              preload="metadata"
+              className={`absolute inset-0 w-full h-full object-cover rounded-lg transition-opacity duration-500 ${
+                loaded ? 'opacity-100 group-hover:scale-105' : 'opacity-0'
+              }`}
+              onMouseEnter={() => handleMouseEnter(index)}
+              onMouseLeave={() => handleMouseLeave(index)}
+              onLoadedData={() => setLoaded(true)}
+              onError={() => {
+                console.error(`Failed to load video at index ${index}`);
+                setHasError(true);
+              }}
+            />
+          )
         )}
-
+        
+        {/* Show Skeleton overlay while video blob is not ready */}
         {!loaded && !hasError && (
           <Skeleton
             height="100%"
@@ -213,11 +235,11 @@ const WallpaperGrid = ({ wallpapers = [] }) => {
               position: 'absolute',
               top: 0,
               left: 0,
-              zIndex: 1,
+              zIndex: 2,
             }}
           />
         )}
-
+        
         <button
           onClick={(e) => handleDownload(e, item, displayName)}
           className="absolute top-2 right-2 bg-black/60 hover:bg-black text-white p-1.5 rounded-full z-10 opacity-0 group-hover:opacity-100 transition-opacity duration-300"
@@ -239,7 +261,7 @@ const WallpaperGrid = ({ wallpapers = [] }) => {
             />
           </svg>
         </button>
-
+        
         <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-end p-3 pointer-events-none">
           <div className="w-full">
             <h3 className="text-white font-medium text-xs sm:text-sm md:text-base truncate">
@@ -262,18 +284,19 @@ const WallpaperGrid = ({ wallpapers = [] }) => {
       </div>
     );
   });
-
+  
   return (
     <div className="w-full h-[100vh]">
       <AutoSizer>
         {({ height, width }) => {
+          const customwidth=2000;
           const isMobile = width < 600;
           const columnCount = isMobile ? 1 : Math.floor(width / (DEFAULT_CELL_WIDTH + GUTTER_SIZE));
           const cellWidth = isMobile ? width - GUTTER_SIZE * 2 : DEFAULT_CELL_WIDTH;
           const cellHeight =
             isMobile ? (cellWidth * DEFAULT_CELL_HEIGHT) / DEFAULT_CELL_WIDTH : DEFAULT_CELL_HEIGHT;
           const rowCount = Math.ceil(wallpapers.length / columnCount);
-
+          
           return (
             <Grid
               columnCount={columnCount}
@@ -281,7 +304,7 @@ const WallpaperGrid = ({ wallpapers = [] }) => {
               height={height}
               rowCount={rowCount}
               rowHeight={cellHeight + GUTTER_SIZE}
-              width={width}
+              width={customwidth}
               itemData={{ wallpapers, columnCount }}
             >
               {Cell}
