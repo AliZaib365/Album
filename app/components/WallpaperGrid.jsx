@@ -11,8 +11,18 @@ const DEFAULT_CELL_WIDTH = 350;
 const DEFAULT_CELL_HEIGHT = 600;
 const GUTTER_SIZE = 8;
 
-// Cache to store blob URLs for media so we don't re-fetch them.
-const blobCache = {};
+// Improved cache implementation for Safari
+const blobCache = new Map();
+const MAX_CACHE_SIZE = 10;
+
+const addToCache = (url, blobUrl) => {
+  if (blobCache.size >= MAX_CACHE_SIZE) {
+    const firstKey = blobCache.keys().next().value;
+    URL.revokeObjectURL(blobCache.get(firstKey));
+    blobCache.delete(firstKey);
+  }
+  blobCache.set(url, blobUrl);
+};
 
 const buildProxyUrl = (originalUrl) => {
   return `/api/proxy?url=${encodeURIComponent(originalUrl)}`;
@@ -22,7 +32,6 @@ const WallpaperGrid = ({ wallpapers = [] }) => {
   const router = useRouter();
   const videoRefs = useRef({});
 
-  // Memoized formatting functions.
   const formatName = useCallback((name) => {
     if (!name) return 'Live Wallpaper';
     const tags = name.split('#').filter(Boolean);
@@ -41,6 +50,8 @@ const WallpaperGrid = ({ wallpapers = [] }) => {
   const handleMouseEnter = useCallback((index) => {
     const video = videoRefs.current[index];
     if (video) {
+      video.muted = true;
+      video.playsInline = true;
       video.play().catch((e) => console.debug('Autoplay prevented:', e));
     }
   }, []);
@@ -73,7 +84,6 @@ const WallpaperGrid = ({ wallpapers = [] }) => {
     setTimeout(() => document.body.removeChild(a), 100);
   }, []);
 
-  // Cell component.
   const Cell = memo(({ columnIndex, rowIndex, style, data }) => {
     const { wallpapers, columnCount } = data;
     const index = rowIndex * columnCount + columnIndex;
@@ -89,8 +99,8 @@ const WallpaperGrid = ({ wallpapers = [] }) => {
     const cellRef = useRef(null);
 
     const loadBlob = useCallback(() => {
-      if (blobCache[item.media]) {
-        setBlobUrl(blobCache[item.media]);
+      if (blobCache.has(item.media)) {
+        setBlobUrl(blobCache.get(item.media));
         return;
       }
       const proxyUrl = buildProxyUrl(item.media);
@@ -101,7 +111,7 @@ const WallpaperGrid = ({ wallpapers = [] }) => {
         })
         .then((blob) => {
           const url = URL.createObjectURL(blob);
-          blobCache[item.media] = url;
+          addToCache(item.media, url);
           setBlobUrl(url);
         })
         .catch((err) => {
@@ -110,7 +120,6 @@ const WallpaperGrid = ({ wallpapers = [] }) => {
         });
     }, [item.media, index]);
 
-    // Use IntersectionObserver to load the blob when the cell is visible.
     useEffect(() => {
       const node = cellRef.current;
       if (!node) return;
@@ -123,12 +132,36 @@ const WallpaperGrid = ({ wallpapers = [] }) => {
             }
           });
         },
-        { threshold: 0.25 }
+        { threshold: 0.1 } // Changed from 0.25 for better Safari compatibility
       );
       observer.observe(node);
       return () => observer.disconnect();
     }, [loadBlob]);
-    
+
+    useEffect(() => {
+      const video = videoRefs.current[index];
+      if (!video) return;
+
+      const enterHandler = () => handleMouseEnter(index);
+      const leaveHandler = () => handleMouseLeave(index);
+
+      video.addEventListener('mouseenter', enterHandler);
+      video.addEventListener('mouseleave', leaveHandler);
+
+      return () => {
+        video.removeEventListener('mouseenter', enterHandler);
+        video.removeEventListener('mouseleave', leaveHandler);
+      };
+    }, [handleMouseEnter, handleMouseLeave, index]);
+
+    useEffect(() => {
+      return () => {
+        if (blobUrl) {
+          URL.revokeObjectURL(blobUrl);
+        }
+      };
+    }, [blobUrl]);
+
     const videoSrc = blobUrl || item.media;
 
     return (
@@ -149,23 +182,25 @@ const WallpaperGrid = ({ wallpapers = [] }) => {
             <p>Failed to load video</p>
           </div>
         ) : (
-          // Removing "loading" attribute for better Safari compatibility.
           <video
             ref={(el) => (videoRefs.current[index] = el)}
             src={videoSrc}
             muted
             loop
             playsInline
-            preload="metadata"
-            className={`absolute inset-0 w-full h-full object-cover rounded-lg transition-transform duration-300 ${
-              loaded ? 'group-hover:scale-105' : 'opacity-0'
+            webkit-playsinline="true"
+            x-webkit-airplay="allow"
+            preload="none"
+            className={`absolute inset-0 w-full h-full object-cover rounded-lg transition-all duration-300 ${
+              loaded ? 'group-hover:brightness-110' : 'opacity-0'
             }`}
-            onMouseEnter={() => handleMouseEnter(index)}
-            onMouseLeave={() => handleMouseLeave(index)}
             onLoadedData={() => setLoaded(true)}
             onError={() => {
               console.error(`Failed to load video at index ${index}`);
               setHasError(true);
+            }}
+            onMouseEnter={(e) => {
+              if (!loaded) e.target.load();
             }}
           />
         )}
@@ -233,7 +268,7 @@ const WallpaperGrid = ({ wallpapers = [] }) => {
     <div className="w-full h-[100vh]">
       <AutoSizer>
         {({ height, width }) => {
-          // Remove any hardcoded custom width to use AutoSizer's width.
+          const customwidth=2000;
           const isMobile = width < 600;
           const columnCount = isMobile ? 1 : Math.floor(width / (DEFAULT_CELL_WIDTH + GUTTER_SIZE));
           const cellWidth = isMobile ? width - GUTTER_SIZE * 2 : DEFAULT_CELL_WIDTH;
@@ -249,7 +284,7 @@ const WallpaperGrid = ({ wallpapers = [] }) => {
               height={height}
               rowCount={rowCount}
               rowHeight={cellHeight + GUTTER_SIZE}
-              width={width}
+              width={customwidth}
               itemData={{ wallpapers, columnCount }}
             >
               {Cell}
