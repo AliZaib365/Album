@@ -5,7 +5,7 @@ const Footer = () => {
     <footer className="w-full bg-white border-t border-gray-100 shadow-sm py-6 sm:py-8 mt-12">
       <div className="container mx-auto px-4 text-center">
         <p className="text-sm sm:text-base md:text-lg font-medium text-gray-600">
-          &copy; 2025 PinGallery. All Rights Reserved.
+          &copy; 2025 4k Wallpaper. All Rights Reserved.
         </p>
 
         {/* Optional Pinterest-style links */}

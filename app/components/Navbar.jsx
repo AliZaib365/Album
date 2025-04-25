@@ -37,11 +37,11 @@ const Navbar = () => {
       </button>
 
       {/* --- Right: Utility Icons (Desktop) --- */}
-      <div className="hidden md:flex items-center gap-4 text-gray-600">
+      {/* <div className="hidden md:flex items-center gap-4 text-gray-600">
         <UtilityIcon icon={<PlusSquare size={22} />} tooltip="Upload" />
         <UtilityIcon icon={<Bell size={22} />} tooltip="Notifications" />
         <UtilityIcon icon={<Settings size={22} />} tooltip="Settings" />
-      </div>
+      </div> */}
 
       {/* --- Mobile Menu (Responsive) --- */}
       {isMobileMenuOpen && (
@@ -53,11 +53,11 @@ const Navbar = () => {
           <Link href="/allwallpapers" className="block py-2 text-gray-600 hover:text-pink-600">All</Link>
 
           {/* --- Mobile Utility Icons --- */}
-          <div className="mt-4 flex justify-between items-center gap-6">
+          {/* <div className="mt-4 flex justify-between items-center gap-6">
             <UtilityIcon icon={<PlusSquare size={22} />} tooltip="Upload" />
             <UtilityIcon icon={<Bell size={22} />} tooltip="Notifications" />
             <UtilityIcon icon={<Settings size={22} />} tooltip="Settings" />
-          </div>
+          </div> */}
         </div>
       )}
     </nav>

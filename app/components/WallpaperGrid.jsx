@@ -1,6 +1,13 @@
 'use client';
 
-import React, { useCallback, useRef, useEffect, useState, memo, useMemo } from 'react';
+import React, {
+  useCallback,
+  useRef,
+  useEffect,
+  useState,
+  memo,
+  useMemo
+} from 'react';
 import { useRouter } from 'next/navigation';
 import { FixedSizeGrid as Grid } from 'react-window';
 import AutoSizer from 'react-virtualized-auto-sizer';
@@ -11,9 +18,8 @@ const DEFAULT_CELL_WIDTH = 350;
 const DEFAULT_CELL_HEIGHT = 600;
 const GUTTER_SIZE = 8;
 
-// In-memory caches for video and thumbnail blob URLs.
+// In-memory cache for video blob URLs.
 const blobCache = {};
-const thumbCache = {};
 
 // Helper function to build the proxy URL.
 const buildProxyUrl = (originalUrl) => {
@@ -24,7 +30,7 @@ const WallpaperGrid = ({ wallpapers = [] }) => {
   const router = useRouter();
   const videoRefs = useRef({});
 
-  // Memoized formatting functions.
+  // Format name and extract tags.
   const formatName = useCallback((name) => {
     if (!name) return 'Live Wallpaper';
     const tags = name.split('#').filter(Boolean);
@@ -37,27 +43,16 @@ const WallpaperGrid = ({ wallpapers = [] }) => {
     return name
       .split('#')
       .slice(1)
-      .map((tag) => tag.replace(/[^a-zA-Z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim());
-  }, []);
-
-  const handleMouseEnter = useCallback((index) => {
-    const video = videoRefs.current[index];
-    if (video) {
-      video.play().catch((e) => console.debug('Autoplay prevented:', e));
-    }
-  }, []);
-
-  const handleMouseLeave = useCallback((index) => {
-    const video = videoRefs.current[index];
-    if (video) {
-      video.pause();
-      video.currentTime = 0;
-    }
+      .map((tag) =>
+        tag.replace(/[^a-zA-Z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim()
+      );
   }, []);
 
   const handleWallpaperClick = useCallback(
     (index) => {
-      const encodedWallpaper = encodeURIComponent(JSON.stringify(wallpapers[index]));
+      const encodedWallpaper = encodeURIComponent(
+        JSON.stringify(wallpapers[index])
+      );
       router.push(`/wallpaper/${index}?data=${encodedWallpaper}`);
     },
     [wallpapers, router]
@@ -68,39 +63,47 @@ const WallpaperGrid = ({ wallpapers = [] }) => {
     const proxyUrl = buildProxyUrl(item.media);
     const a = document.createElement('a');
     a.href = proxyUrl;
-    a.setAttribute('download', `${displayName.replace(/[^a-z0-9]/gi, '_')}.mp4`);
+    a.setAttribute(
+      'download',
+      `${displayName.replace(/[^a-z0-9]/gi, '_')}.mp4`
+    );
     a.style.display = 'none';
     document.body.appendChild(a);
     a.click();
     setTimeout(() => document.body.removeChild(a), 100);
   }, []);
 
-  // Cell component.
+  // Cell component: always display thumbnail, and play video on hover.
   const Cell = memo(({ columnIndex, rowIndex, style, data }) => {
     const { wallpapers, columnCount } = data;
     const index = rowIndex * columnCount + columnIndex;
     if (index >= wallpapers.length) return null;
-    
+
     const item = wallpapers[index];
-    const displayName = useMemo(() => formatName(item.name), [item.name, formatName]);
-    const tags = useMemo(() => extractTags(item.name), [item.name, extractTags]);
-    
-    // Video state.
-    const [loaded, setLoaded] = useState(false);
-    const [hasError, setHasError] = useState(false);
+    const displayName = useMemo(
+      () => formatName(item.name),
+      [item.name, formatName]
+    );
+    const tags = useMemo(
+      () => extractTags(item.name),
+      [item.name, extractTags]
+    );
+
+    // States for video blob and hover.
     const [blobUrl, setBlobUrl] = useState(null);
     const [isBlobReady, setBlobReady] = useState(false);
-    
-    // Thumbnail state.
-    const [thumbBlobUrl, setThumbBlobUrl] = useState(null);
-    const [isThumbBlobReady, setThumbBlobReady] = useState(false);
-    
-    const cellRef = useRef(null);
-    
-    // Determine the thumbnail URL.
+    const [videoLoaded, setVideoLoaded] = useState(false);
+    const [hasError, setHasError] = useState(false);
+    const [isHovered, setIsHovered] = useState(false);
+
+    // Thumbnail URL (loads immediately)
     const thumbUrl =
-      item.Thumbnail && item.Thumbnail.length > 0 ? item.Thumbnail[0].media : null;
-    
+      item.Thumbnail && item.Thumbnail.length > 0
+        ? item.Thumbnail[0].media
+        : null;
+
+    const cellRef = useRef(null);
+
     // Function to load video as blob.
     const loadBlob = useCallback(() => {
       if (blobCache[item.media]) {
@@ -110,7 +113,8 @@ const WallpaperGrid = ({ wallpapers = [] }) => {
         const proxyUrl = buildProxyUrl(item.media);
         fetch(proxyUrl)
           .then((res) => {
-            if (!res.ok) throw new Error('Network response was not ok');
+            if (!res.ok)
+              throw new Error('Network response was not ok');
             return res.blob();
           })
           .then((blob) => {
@@ -120,61 +124,66 @@ const WallpaperGrid = ({ wallpapers = [] }) => {
             setBlobReady(true);
           })
           .catch((err) => {
-            console.error(`Failed to convert video media to blob at index ${index}:`, err);
+            console.error(`Failed to load video blob at index ${index}:`, err);
             setHasError(true);
           });
       }
     }, [item.media, index]);
-    
-    // Function to load thumbnail as blob.
-    const loadThumbBlob = useCallback(() => {
-      if (!thumbUrl) return;
-      if (thumbCache[thumbUrl]) {
-        setThumbBlobUrl(thumbCache[thumbUrl]);
-        setThumbBlobReady(true);
-        return;
-      }
-      const proxyUrl = buildProxyUrl(thumbUrl);
-      fetch(proxyUrl)
-        .then((res) => {
-          if (!res.ok) throw new Error('Network response was not ok');
-          return res.blob();
-        })
-        .then((blob) => {
-          const url = URL.createObjectURL(blob);
-          thumbCache[thumbUrl] = url;
-          setThumbBlobUrl(url);
-          setThumbBlobReady(true);
-        })
-        .catch((err) => {
-          console.error(`Failed to convert thumbnail to blob at index ${index}:`, err);
-        });
-    }, [thumbUrl, index]);
-    
-    // Use IntersectionObserver to load blobs when the cell is in view.
+
+    // Preload video blob for first 20 cells; lazy load otherwise.
     useEffect(() => {
-      const node = cellRef.current;
-      if (!node) return;
-      const observer = new IntersectionObserver(
-        (entries) => {
-          entries.forEach((entry) => {
-            if (entry.isIntersecting) {
-              loadBlob();
-              if (thumbUrl) loadThumbBlob();
-              observer.disconnect();
-            }
-          });
-        },
-        { threshold: 0.25 }
-      );
-      observer.observe(node);
-      return () => observer.disconnect();
-    }, [loadBlob, loadThumbBlob, thumbUrl]);
-    
-    // Use only the blob URLs (do not fall back to original URLs).
+      if (index < 20) {
+        loadBlob();
+      } else {
+        const node = cellRef.current;
+        if (!node) return;
+        const observer = new IntersectionObserver(
+          (entries) => {
+            entries.forEach((entry) => {
+              if (entry.isIntersecting) {
+                loadBlob();
+                observer.disconnect();
+              }
+            });
+          },
+          { threshold: 0.25 }
+        );
+        observer.observe(node);
+        return () => observer.disconnect();
+      }
+    }, [loadBlob, index]);
+
+    // When hovered, start playing video.
+    const handleMouseEnter = useCallback(() => {
+      setIsHovered(true);
+      if (!isBlobReady) {
+        loadBlob();
+      }
+    }, [isBlobReady, loadBlob]);
+
+    const handleMouseLeave = useCallback(() => {
+      setIsHovered(false);
+      const video = videoRefs.current[index];
+      if (video) {
+        video.pause();
+        video.currentTime = 0;
+      }
+    }, [index]);
+
+    // Effect to trigger video playback when hovered and video element is ready.
+    useEffect(() => {
+      if (isHovered && isBlobReady) {
+        const video = videoRefs.current[index];
+        if (video) {
+          video.play().catch((e) => console.debug('Autoplay prevented:', e));
+        }
+      }
+    }, [isHovered, isBlobReady, index]);
+
+    // Render video element only when hovered.
     const videoSrc = isBlobReady ? blobUrl : null;
-    const imageSrc = isThumbBlobReady ? thumbBlobUrl : null;
-    
+    const imageSrc = thumbUrl; // always use original thumbnail URL
+
     return (
       <div
         ref={cellRef}
@@ -183,50 +192,44 @@ const WallpaperGrid = ({ wallpapers = [] }) => {
           left: Number(style.left) + GUTTER_SIZE,
           top: Number(style.top) + GUTTER_SIZE,
           width: Number(style.width) - GUTTER_SIZE,
-          height: Number(style.height) - GUTTER_SIZE,
+          height: Number(style.height) - GUTTER_SIZE
         }}
         className="relative group overflow-hidden rounded-lg shadow-md hover:shadow-lg transition-all duration-300 cursor-pointer"
         onClick={() => handleWallpaperClick(index)}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
       >
-        {/* Render the thumbnail image if its blob URL is ready */}
-        {thumbUrl && imageSrc && (
+        {/* Thumbnail loads immediately in background */}
+        {thumbUrl && (
           <img
             src={imageSrc}
             alt={displayName}
             className="absolute inset-0 w-full h-full object-cover rounded-lg transition-opacity duration-500"
-            style={{ opacity: 1 }}
+            style={{ opacity: isHovered ? 0 : 1 }}
           />
         )}
-        {hasError ? (
-          <div className="absolute inset-0 flex items-center justify-center bg-gray-200 text-gray-500">
-            <p>Failed to load video</p>
-          </div>
-        ) : (
-          // Render video only when its blob URL is ready.
-          videoSrc && (
-            <video
-              ref={(el) => (videoRefs.current[index] = el)}
-              src={videoSrc}
-              muted
-              loop
-              playsInline
-              preload="metadata"
-              className={`absolute inset-0 w-full h-full object-cover rounded-lg transition-opacity duration-500 ${
-                loaded ? 'opacity-100 group-hover:scale-105' : 'opacity-0'
-              }`}
-              onMouseEnter={() => handleMouseEnter(index)}
-              onMouseLeave={() => handleMouseLeave(index)}
-              onLoadedData={() => setLoaded(true)}
-              onError={() => {
-                console.error(`Failed to load video at index ${index}`);
-                setHasError(true);
-              }}
-            />
-          )
+
+        {/* Video element: only shown on hover */}
+        {isHovered && videoSrc && (
+          <video
+            ref={(el) => (videoRefs.current[index] = el)}
+            src={videoSrc}
+            muted
+            loop
+            playsInline
+            preload="metadata"
+            className="absolute inset-0 w-full h-full object-cover rounded-lg transition-opacity duration-500"
+            style={{ opacity: isHovered ? 1 : 0 }}
+            onLoadedData={() => setVideoLoaded(true)}
+            onError={() => {
+              console.error(`Failed to load video at index ${index}`);
+              setHasError(true);
+            }}
+          />
         )}
-        
-        {/* Show Skeleton overlay while video blob is not ready */}
-        {!loaded && !hasError && (
+
+        {/* Skeleton overlay if thumbnail is missing */}
+        {!thumbUrl && (
           <Skeleton
             height="100%"
             width="100%"
@@ -235,11 +238,11 @@ const WallpaperGrid = ({ wallpapers = [] }) => {
               position: 'absolute',
               top: 0,
               left: 0,
-              zIndex: 2,
+              zIndex: 2
             }}
           />
         )}
-        
+
         <button
           onClick={(e) => handleDownload(e, item, displayName)}
           className="absolute top-2 right-2 bg-black/60 hover:bg-black text-white p-1.5 rounded-full z-10 opacity-0 group-hover:opacity-100 transition-opacity duration-300"
@@ -261,7 +264,7 @@ const WallpaperGrid = ({ wallpapers = [] }) => {
             />
           </svg>
         </button>
-        
+
         <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-end p-3 pointer-events-none">
           <div className="w-full">
             <h3 className="text-white font-medium text-xs sm:text-sm md:text-base truncate">
@@ -284,19 +287,21 @@ const WallpaperGrid = ({ wallpapers = [] }) => {
       </div>
     );
   });
-  
+
   return (
     <div className="w-full h-[100vh]">
       <AutoSizer>
         {({ height, width }) => {
-          const customwidth=2000;
           const isMobile = width < 600;
-          const columnCount = isMobile ? 1 : Math.floor(width / (DEFAULT_CELL_WIDTH + GUTTER_SIZE));
+          const columnCount = isMobile
+            ? 1
+            : Math.floor(width / (DEFAULT_CELL_WIDTH + GUTTER_SIZE));
           const cellWidth = isMobile ? width - GUTTER_SIZE * 2 : DEFAULT_CELL_WIDTH;
-          const cellHeight =
-            isMobile ? (cellWidth * DEFAULT_CELL_HEIGHT) / DEFAULT_CELL_WIDTH : DEFAULT_CELL_HEIGHT;
+          const cellHeight = isMobile
+            ? (cellWidth * DEFAULT_CELL_HEIGHT) / DEFAULT_CELL_WIDTH
+            : DEFAULT_CELL_HEIGHT;
           const rowCount = Math.ceil(wallpapers.length / columnCount);
-          
+
           return (
             <Grid
               columnCount={columnCount}
@@ -304,7 +309,7 @@ const WallpaperGrid = ({ wallpapers = [] }) => {
               height={height}
               rowCount={rowCount}
               rowHeight={cellHeight + GUTTER_SIZE}
-              width={customwidth}
+              width={width}
               itemData={{ wallpapers, columnCount }}
             >
               {Cell}
