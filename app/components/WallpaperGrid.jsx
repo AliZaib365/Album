@@ -149,7 +149,7 @@ const WallpaperGrid = ({ wallpapers = [] }) => {
             <p>Failed to load video</p>
           </div>
         ) : (
-          // Removing the "loading" attribute as Safari's support can be spotty.
+          // Removing "loading" attribute for better Safari compatibility.
           <video
             ref={(el) => (videoRefs.current[index] = el)}
             src={videoSrc}
@@ -233,11 +233,10 @@ const WallpaperGrid = ({ wallpapers = [] }) => {
     <div className="w-full h-[100vh]">
       <AutoSizer>
         {({ height, width }) => {
-          // Adjust responsiveness for mobile devices.
+          // Remove any hardcoded custom width to use AutoSizer's width.
           const isMobile = width < 600;
           const columnCount = isMobile ? 1 : Math.floor(width / (DEFAULT_CELL_WIDTH + GUTTER_SIZE));
           const cellWidth = isMobile ? width - GUTTER_SIZE * 2 : DEFAULT_CELL_WIDTH;
-          // Maintain aspect ratio.
           const cellHeight = isMobile
             ? (cellWidth * DEFAULT_CELL_HEIGHT) / DEFAULT_CELL_WIDTH
             : DEFAULT_CELL_HEIGHT;
