@@ -149,6 +149,7 @@ const WallpaperGrid = ({ wallpapers = [] }) => {
             <p>Failed to load video</p>
           </div>
         ) : (
+          // Removing the "loading" attribute as Safari's support can be spotty.
           <video
             ref={(el) => (videoRefs.current[index] = el)}
             src={videoSrc}
@@ -156,7 +157,6 @@ const WallpaperGrid = ({ wallpapers = [] }) => {
             loop
             playsInline
             preload="metadata"
-            loading="lazy"
             className={`absolute inset-0 w-full h-full object-cover rounded-lg transition-transform duration-300 ${
               loaded ? 'group-hover:scale-105' : 'opacity-0'
             }`}
@@ -237,8 +237,10 @@ const WallpaperGrid = ({ wallpapers = [] }) => {
           const isMobile = width < 600;
           const columnCount = isMobile ? 1 : Math.floor(width / (DEFAULT_CELL_WIDTH + GUTTER_SIZE));
           const cellWidth = isMobile ? width - GUTTER_SIZE * 2 : DEFAULT_CELL_WIDTH;
-          // Maintain aspect ratio based on default cell sizes.
-          const cellHeight = isMobile ? (cellWidth * DEFAULT_CELL_HEIGHT) / DEFAULT_CELL_WIDTH : DEFAULT_CELL_HEIGHT;
+          // Maintain aspect ratio.
+          const cellHeight = isMobile
+            ? (cellWidth * DEFAULT_CELL_HEIGHT) / DEFAULT_CELL_WIDTH
+            : DEFAULT_CELL_HEIGHT;
           const rowCount = Math.ceil(wallpapers.length / columnCount);
 
           return (
