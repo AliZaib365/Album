@@ -1,17 +1,19 @@
 'use client';
 
-import React, { useCallback, useRef, useEffect, useState, memo } from 'react';
+import React, { useCallback, useRef, useEffect, useState, memo, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { FixedSizeGrid as Grid } from 'react-window';
 import AutoSizer from 'react-virtualized-auto-sizer';
 import Skeleton from 'react-loading-skeleton';
-import 'react-loading-skeleton/dist/skeleton.css'; // Import skeleton styles
+import 'react-loading-skeleton/dist/skeleton.css';
 
-const CELL_WIDTH = 350;
-const CELL_HEIGHT = 600;
+const DEFAULT_CELL_WIDTH = 350;
+const DEFAULT_CELL_HEIGHT = 600;
 const GUTTER_SIZE = 8;
 
-// Helper function to build proxy URL
+// Cache to store blob URLs for media so we don't re-fetch them.
+const blobCache = {};
+
 const buildProxyUrl = (originalUrl) => {
   return `/api/proxy?url=${encodeURIComponent(originalUrl)}`;
 };
@@ -20,6 +22,7 @@ const WallpaperGrid = ({ wallpapers = [] }) => {
   const router = useRouter();
   const videoRefs = useRef({});
 
+  // Memoized formatting functions.
   const formatName = useCallback((name) => {
     if (!name) return 'Live Wallpaper';
     const tags = name.split('#').filter(Boolean);
@@ -60,7 +63,6 @@ const WallpaperGrid = ({ wallpapers = [] }) => {
 
   const handleDownload = useCallback((e, item, displayName) => {
     e.stopPropagation();
-    // Use the proxy route instead of the original media URL
     const proxyUrl = buildProxyUrl(item.media);
     const a = document.createElement('a');
     a.href = proxyUrl;
@@ -71,23 +73,26 @@ const WallpaperGrid = ({ wallpapers = [] }) => {
     setTimeout(() => document.body.removeChild(a), 100);
   }, []);
 
+  // Cell component.
   const Cell = memo(({ columnIndex, rowIndex, style, data }) => {
     const { wallpapers, columnCount } = data;
     const index = rowIndex * columnCount + columnIndex;
     if (index >= wallpapers.length) return null;
 
     const item = wallpapers[index];
-    const displayName = formatName(item.name);
-    const tags = extractTags(item.name);
+    const displayName = useMemo(() => formatName(item.name), [item.name, formatName]);
+    const tags = useMemo(() => extractTags(item.name), [item.name, extractTags]);
 
-    // Local state for video load status, error, and blob URL.
     const [loaded, setLoaded] = useState(false);
     const [hasError, setHasError] = useState(false);
     const [blobUrl, setBlobUrl] = useState(null);
+    const cellRef = useRef(null);
 
-    useEffect(() => {
-      let isCancelled = false;
-      // Instead of fetching the original API URL directly, we fetch via our proxy which returns the resource.
+    const loadBlob = useCallback(() => {
+      if (blobCache[item.media]) {
+        setBlobUrl(blobCache[item.media]);
+        return;
+      }
       const proxyUrl = buildProxyUrl(item.media);
       fetch(proxyUrl)
         .then((res) => {
@@ -95,23 +100,40 @@ const WallpaperGrid = ({ wallpapers = [] }) => {
           return res.blob();
         })
         .then((blob) => {
-          if (!isCancelled) {
-            const url = URL.createObjectURL(blob);
-            setBlobUrl(url);
-          }
+          const url = URL.createObjectURL(blob);
+          blobCache[item.media] = url;
+          setBlobUrl(url);
         })
         .catch((err) => {
           console.error(`Failed to convert media to blob at index ${index}:`, err);
           setHasError(true);
         });
-      return () => {
-        isCancelled = true;
-        if (blobUrl) URL.revokeObjectURL(blobUrl);
-      };
     }, [item.media, index]);
+
+    // Use IntersectionObserver to load the blob when the cell is visible.
+    useEffect(() => {
+      const node = cellRef.current;
+      if (!node) return;
+      const observer = new IntersectionObserver(
+        (entries) => {
+          entries.forEach((entry) => {
+            if (entry.isIntersecting) {
+              loadBlob();
+              observer.disconnect();
+            }
+          });
+        },
+        { threshold: 0.25 }
+      );
+      observer.observe(node);
+      return () => observer.disconnect();
+    }, [loadBlob]);
+    
+    const videoSrc = blobUrl || item.media;
 
     return (
       <div
+        ref={cellRef}
         style={{
           ...style,
           left: Number(style.left) + GUTTER_SIZE,
@@ -127,30 +149,27 @@ const WallpaperGrid = ({ wallpapers = [] }) => {
             <p>Failed to load video</p>
           </div>
         ) : (
-          blobUrl && (
-            <video
-              ref={(el) => (videoRefs.current[index] = el)}
-              src={blobUrl}
-              muted
-              loop
-              playsInline
-              preload="metadata"
-              loading="lazy" // Lazy loading for performance
-              className={`absolute inset-0 w-full h-full object-cover rounded-lg transition-transform duration-300 ${
-                loaded ? 'group-hover:scale-105' : 'opacity-0'
-              }`}
-              onMouseEnter={() => handleMouseEnter(index)}
-              onMouseLeave={() => handleMouseLeave(index)}
-              onLoadedData={() => setLoaded(true)}
-              onError={() => {
-                console.error(`Failed to load video at index ${index}`);
-                setHasError(true);
-              }}
-            />
-          )
+          <video
+            ref={(el) => (videoRefs.current[index] = el)}
+            src={videoSrc}
+            muted
+            loop
+            playsInline
+            preload="metadata"
+            loading="lazy"
+            className={`absolute inset-0 w-full h-full object-cover rounded-lg transition-transform duration-300 ${
+              loaded ? 'group-hover:scale-105' : 'opacity-0'
+            }`}
+            onMouseEnter={() => handleMouseEnter(index)}
+            onMouseLeave={() => handleMouseLeave(index)}
+            onLoadedData={() => setLoaded(true)}
+            onError={() => {
+              console.error(`Failed to load video at index ${index}`);
+              setHasError(true);
+            }}
+          />
         )}
 
-        {/* Skeleton animation overlay while video is loading */}
         {!loaded && !hasError && (
           <Skeleton
             height="100%"
@@ -214,17 +233,22 @@ const WallpaperGrid = ({ wallpapers = [] }) => {
     <div className="w-full h-[100vh]">
       <AutoSizer>
         {({ height, width }) => {
-          const customwidth = 2000;
-          const columnCount = Math.floor(width / (CELL_WIDTH + GUTTER_SIZE)) || 1;
+          // Adjust responsiveness for mobile devices.
+          const isMobile = width < 600;
+          const columnCount = isMobile ? 1 : Math.floor(width / (DEFAULT_CELL_WIDTH + GUTTER_SIZE));
+          const cellWidth = isMobile ? width - GUTTER_SIZE * 2 : DEFAULT_CELL_WIDTH;
+          // Maintain aspect ratio based on default cell sizes.
+          const cellHeight = isMobile ? (cellWidth * DEFAULT_CELL_HEIGHT) / DEFAULT_CELL_WIDTH : DEFAULT_CELL_HEIGHT;
           const rowCount = Math.ceil(wallpapers.length / columnCount);
+
           return (
             <Grid
               columnCount={columnCount}
-              columnWidth={CELL_WIDTH + GUTTER_SIZE}
+              columnWidth={cellWidth + GUTTER_SIZE}
               height={height}
               rowCount={rowCount}
-              rowHeight={CELL_HEIGHT + GUTTER_SIZE}
-              width={customwidth}
+              rowHeight={cellHeight + GUTTER_SIZE}
+              width={width}
               itemData={{ wallpapers, columnCount }}
             >
               {Cell}

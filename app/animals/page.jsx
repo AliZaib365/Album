@@ -3,6 +3,16 @@
 import { useEffect, useState } from "react";
 import WallpaperGrid from "../components/WallpaperGrid";
 
+// Utility function to shuffle an array using the Fisher-Yates algorithm.
+const shuffleArray = (array) => {
+  const arr = [...array];
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+};
+
 const AnimalsPage = () => {
   const [wallpapers, setWallpapers] = useState([]);
   const category = "Animals";
@@ -21,7 +31,9 @@ const AnimalsPage = () => {
         });
         const data = await res.json();
         const fetchedWallpapers = data.categories || [];
-        setWallpapers(fetchedWallpapers);
+        // Shuffle wallpapers array to randomize the display order every time.
+        const randomizedWallpapers = shuffleArray(fetchedWallpapers);
+        setWallpapers(randomizedWallpapers);
       } catch (err) {
         console.error('Error fetching wallpapers:', err);
       }

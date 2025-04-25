@@ -1,7 +1,6 @@
 "use client"
 import React, { useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import Link from 'next/link';
 
 function WallpaperDetailPage() {
   const router = useRouter();
@@ -32,8 +31,6 @@ function WallpaperDetailPage() {
     const fetchBlob = async () => {
       if (wallpaper && wallpaper.media) {
         try {
-          // Use your API route (for example '/api/proxy?url=...') to fetch the file
-          // so that you don't expose the original URL.
           const proxyUrl = `/api/proxy?url=${encodeURIComponent(wallpaper.media)}`;
           const response = await fetch(proxyUrl);
           if (!response.ok) {
@@ -50,7 +47,6 @@ function WallpaperDetailPage() {
 
     fetchBlob();
 
-    // Cleanup: revoke the blob URL when the component unmounts or wallpaper changes.
     return () => {
       if (currentBlobUrl) {
         URL.revokeObjectURL(currentBlobUrl);
@@ -69,12 +65,11 @@ function WallpaperDetailPage() {
     }
   };
 
-  // Download handler that creates an anchor element to trigger download from the blob URL.
+  // Download handler that creates an anchor element 
   const handleDownload = () => {
     if (!blobVideoUrl || !wallpaper) return;
     const link = document.createElement('a');
     link.href = blobVideoUrl;
-    // Use the formatted name with .mp4 extension; adjust extension as necessary
     link.download = `${formatName(wallpaper.name)}.mp4`;
     document.body.appendChild(link);
     link.click();
@@ -91,9 +86,12 @@ function WallpaperDetailPage() {
 
   const extractTags = (name) => {
     if (!name) return [];
-    return name.split('#').slice(1).map((tag) =>
-      tag.replace(/[^a-zA-Z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim()
-    );
+    return name
+      .split('#')
+      .slice(1)
+      .map((tag) =>
+        tag.replace(/[^a-zA-Z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim()
+      );
   };
 
   if (!wallpaper || !blobVideoUrl) {
@@ -110,14 +108,23 @@ function WallpaperDetailPage() {
 
   return (
     <div className="min-h-screen bg-white text-gray-900 px-4 pt-24 pb-16 relative font-sans">
-      {/* Back Button */}
-      <Link href={`/${category}`}>
-        <div className="absolute top-6 left-6 z-50 bg-gray-100 hover:bg-gray-200 shadow-md rounded-full p-3 transition" aria-label="Go back">
-          <svg className="w-6 h-6 text-gray-800" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
-          </svg>
-        </div>
-      </Link>
+      {/* Back Button: using router.back() */}
+      <button
+        type="button"
+        onClick={() => router.back()}
+        className="absolute top-6 left-6 z-50 bg-gray-100 hover:bg-gray-200 shadow-md rounded-full p-3 transition"
+        aria-label="Go back"
+      >
+        <svg
+          className="w-6 h-6 text-gray-800"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+          strokeWidth="1.5"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
+        </svg>
+      </button>
 
       {/* Video Preview Section */}
       <div className="max-w-4xl mx-auto rounded-2xl overflow-hidden border border-gray-200 shadow-lg bg-gray-50">
@@ -142,7 +149,10 @@ function WallpaperDetailPage() {
         {tags.length > 0 && (
           <div className="mt-4 flex justify-center gap-2 flex-wrap">
             {tags.map((tag, idx) => (
-              <span key={idx} className="text-sm px-4 py-1 rounded-full bg-gray-200 text-gray-700">
+              <span
+                key={idx}
+                className="text-sm px-4 py-1 rounded-full bg-gray-200 text-gray-700"
+              >
                 #{tag}
               </span>
             ))}
@@ -159,7 +169,6 @@ function WallpaperDetailPage() {
           {isPlaying ? <PauseIcon /> : <PlayIcon />}
           {isPlaying ? 'Pause' : 'Play'}
         </button>
-        {/* Download Button */}
         <button
           onClick={handleDownload}
           className="bg-gray-800 hover:bg-gray-900 text-white px-6 py-2 rounded-xl shadow-md flex items-center gap-2 font-semibold focus:outline-none focus:ring-2 focus:ring-gray-500"
@@ -173,15 +182,27 @@ function WallpaperDetailPage() {
 }
 
 const PlayIcon = () => (
-  <svg className="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+  <svg
+    className="w-5 h-5"
+    xmlns="http://www.w3.org/2000/svg"
+    fill="none"
+    viewBox="0 0 24 24"
+    stroke="currentColor"
+  >
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 4l15 8-15 8V4z" />
   </svg>
 );
 
 const PauseIcon = () => (
-  <svg className="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+  <svg
+    className="w-5 h-5"
+    xmlns="http://www.w3.org/2000/svg"
+    fill="none"
+    viewBox="0 0 24 24"
+    stroke="currentColor"
+  >
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 9v6m4-6v6" />
   </svg>
 );
 
-export default WallpaperDetailPage; 
+export default WallpaperDetailPage;
