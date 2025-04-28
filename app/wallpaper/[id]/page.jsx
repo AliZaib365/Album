@@ -1,4 +1,4 @@
-"use client"
+"use client";
 import React, { useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 
@@ -9,6 +9,7 @@ function WallpaperDetailPage() {
   const [wallpaper, setWallpaper] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [blobVideoUrl, setBlobVideoUrl] = useState('');
+  const [thumbnailUrl, setThumbnailUrl] = useState(''); // New state for thumbnail
 
   // Fetch wallpaper data from the URL search parameters.
   useEffect(() => {
@@ -24,6 +25,15 @@ function WallpaperDetailPage() {
       router.push('/');
     }
   }, [searchParams, router]);
+
+  // Set thumbnail URL if wallpaper includes a thumbnail property. Otherwise, you can use a fallback.
+  useEffect(() => {
+    if (wallpaper) {
+      // If your wallpaper object has a "thumbnail" property, use it.
+      // Otherwise, customize this logic as needed.
+      setThumbnailUrl(wallpaper.thumbnail || '');
+    }
+  }, [wallpaper]);
 
   // Once wallpaper is loaded, fetch the media as a blob and create a blob URL for preview.
   useEffect(() => {
@@ -135,6 +145,7 @@ function WallpaperDetailPage() {
           loop
           playsInline
           autoPlay
+          poster={thumbnailUrl} // Use thumbnail as the poster image for immediate display
           onClick={togglePlay}
           onPlay={() => setIsPlaying(true)}
           onPause={() => setIsPlaying(false)}

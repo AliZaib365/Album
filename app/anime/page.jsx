@@ -3,6 +3,10 @@
 import { useEffect, useState } from "react";
 import WallpaperGrid from "../components/WallpaperGrid";
 
+// Global variable to cache wallpapers on the client.
+// This cache survives client-side navigations but will be reset on a full page reload.
+let animalsWallpapersCache = null;
+
 // Utility function to shuffle an array using the Fisher-Yates algorithm.
 const shuffleArray = (array) => {
   const arr = [...array];
@@ -18,24 +22,32 @@ const AnimalsPage = () => {
   const category = "Anime";
 
   useEffect(() => {
+    // If wallpapers are already cached due to client-side navigation,
+    // use the cached result instead of refetching and reshuffling.
+    if (animalsWallpapersCache) {
+      setWallpapers(animalsWallpapersCache);
+      return;
+    }
+
     const fetchWallpapers = async () => {
-      // Shuffle the API URL by appending a random query parameter
       const baseUrl = process.env.NEXT_PUBLIC_WALLPAPER_API_ANIME;
       const separator = baseUrl.includes('?') ? '&' : '?';
+      // Append a random query parameter to defeat caching from the API
       const shuffledUrl = `${baseUrl}${separator}shuffle=${Math.random()}`;
 
-      // Fetch wallpapers from the shuffled API URL
       try {
         const res = await fetch(shuffledUrl, {
           cache: "no-store",
         });
         const data = await res.json();
         const fetchedWallpapers = data.categories || [];
-        // Shuffle wallpapers array to randomize the display order every time.
+        // Shuffle wallpapers array to randomize the display order.
         const randomizedWallpapers = shuffleArray(fetchedWallpapers);
+        // Cache the result so it persists on client-side navigations.
+        animalsWallpapersCache = randomizedWallpapers;
         setWallpapers(randomizedWallpapers);
       } catch (err) {
-        console.error('Error fetching wallpapers:', err);
+        console.error("Error fetching wallpapers:", err);
       }
     };
 
